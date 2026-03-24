@@ -1,15 +1,24 @@
 import os
 import pandas as pd
+import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
-import streamlit as st
 
+# ---------------------------
+# Load API Key
+# ---------------------------
 load_dotenv()
 
-api_key = os.getenv("OPENAI_API_KEY")
+api_key = None
+
+if "OPENAI_API_KEY" in st.secrets:
+    api_key = st.secrets["OPENAI_API_KEY"]
+else:
+    api_key = os.getenv("OPENAI_API_KEY")
 
 if not api_key:
-    raise ValueError("OPENAI_API_KEY not found. Please add it to your .env file.")
+    st.error("Missing OPENAI_API_KEY. Add it in Streamlit Secrets or your local .env file.")
+    st.stop()
 
 client = OpenAI(api_key=api_key)
 
