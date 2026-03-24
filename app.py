@@ -10,7 +10,6 @@ from openai import OpenAI
 load_dotenv()
 
 api_key = None
-
 if "OPENAI_API_KEY" in st.secrets:
     api_key = st.secrets["OPENAI_API_KEY"]
 else:
@@ -22,40 +21,199 @@ if not api_key:
 
 client = OpenAI(api_key=api_key)
 
-st.set_page_config(page_title="L&C Mortgage Insights Chatbot", page_icon="📊")
-st.title("📊 L&C Mortgage Insights Chatbot")
-st.caption("Ask questions about L&C mortgages, financial performance, conversions, and application volumes.")
+# ---------------------------
+# Page Setup
+# ---------------------------
+st.set_page_config(page_title="L&C Mortgage Insights", page_icon="lc_logo.png", layout="wide")
 
-uploaded_file = st.file_uploader("Upload a CSV file with L&C business data", type=["csv"])
+st.image("lc_logo.png", width=180)
+st.title("L&C Mortgage Insights Chatbot")
+st.caption("AI-powered insights for L&C trading volumes and trends")
 
-data_context = ""
+# ---------------------------
+# Load Data
+# ---------------------------
+data_file = "sample_lc_mortgage_data.csv"
+raw_df = None
 
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
-    st.subheader("Preview of uploaded data")
-    st.dataframe(df.head())
+if os.path.exists(data_file):
+    raw_df = pd.read_csv(data_file)
 
-    data_context = df.to_csv(index=False)
-
-st.subheader("Example questions")
-st.write("- What were application volumes last month?")
-st.write("- How have trading conversions changed over time?")
-st.write("- Summarise historic financial performance trends.")
-st.write("- What does the data suggest about recent mortgage demand?")
-
-system_prompt = (
-    "You are an internal business insights assistant for L&C Mortgages. "
-    "You help users understand historic financial performance, trading conversions, "
-    "application numbers, and business trends. "
-    "Use the uploaded CSV data when available. "
-    "Do not invent figures. "
-    "If the answer is not in the provided data, say that clearly. "
-    "Answer clearly, professionally, and briefly."
-)
+uploaded_file = st.file_uploader("Upload your own CSV", type=["csv"])
 
 if uploaded_file is not None:
-    system_prompt += f"\n\nHere is the available business data in CSV format:\n{data_context}"
+    raw_df = pd.read_csv(uploaded_file)
 
+# ---------------------------
+# Process Data
+# ---------------------------
+chart_df = None
+data_summary = ""
+ratio_df = None
+
+if raw_df is not None:
+    raw_df = raw_df.rename(columns={"Unnamed: 0": "category"})
+    raw_df["category"] = raw_df["category"].astype(str).str.strip()
+
+    month_columns = [col for col in raw_df.columns if col != "category"]
+
+    df_long = raw_df.melt(
+        id_vars="category",
+        value_vars=month_columns,
+        var_name="month",
+        value_name="value"
+    )
+
+    df_long["month_date"] = pd.to_datetime(df_long["month"], format="%b-%y", errors="coerce")
+    df_long = df_long.sort_values(["month_date", "category"])
+
+    chart_df = df_long.pivot(index="month_date", columns="category", values="value").fillna(0)
+    chart_df = chart_df.sort_index()
+
+    # Derived metrics
+    ratio_df = chart_df.copy()
+
+    if "Mortgages" in ratio_df.columns and "Protection" in ratio_df.columns:
+        ratio_df["Protection_to_Mortgages_%"] = (
+            ratio_df["Protection"] / ratio_df["Mortgages"] * 100
+        ).round(2)
+
+    if "Mortgages" in ratio_df.columns and "Conveyancing" in ratio_df.columns:
+        ratio_df["Conveyancing_to_Mortgages_%"] = (
+            ratio_df["Conveyancing"] / ratio_df["Mortgages"] * 100
+        ).round(2)
+
+    # KPI section
+    st.subheader("Data Overview")
+    col1, col2, col3 = st.columns(3)
+
+    if "Mortgages" in chart_df.columns:
+        col1.metric("Total Mortgages", f"{int(chart_df['Mortgages'].sum()):,}")
+    else:
+        col1.metric("Total Mortgages", "N/A")
+
+    if "Protection" in chart_df.columns:
+        col2.metric("Total Protection", f"{int(chart_df['Protection'].sum()):,}")
+    else:
+        col2.metric("Total Protection", "N/A")
+
+    if "Conveyancing" in chart_df.columns:
+        col3.metric("Total Conveyancing", f"{int(chart_df['Conveyancing'].sum()):,}")
+    else:
+        col3.metric("Total Conveyancing", "N/A")
+
+    # Extra KPI ratios
+    st.subheader("Key Ratios")
+    r1, r2 = st.columns(2)
+
+    if "Protection_to_Mortgages_%" in ratio_df.columns:
+        r1.metric(
+            "Average Protection to Mortgages %",
+            f"{ratio_df['Protection_to_Mortgages_%'].mean():.2f}%"
+        )
+    else:
+        r1.metric("Average Protection to Mortgages %", "N/A")
+
+    if "Conveyancing_to_Mortgages_%" in ratio_df.columns:
+        r2.metric(
+            "Average Conveyancing to Mortgages %",
+            f"{ratio_df['Conveyancing_to_Mortgages_%'].mean():.2f}%"
+        )
+    else:
+        r2.metric("Average Conveyancing to Mortgages %", "N/A")
+
+    # Charts
+    st.subheader("Trend Chart")
+    categories = list(chart_df.columns)
+
+    chart_choice = st.selectbox(
+        "Select series to view",
+        options=["All"] + categories
+    )
+
+    if chart_choice == "All":
+        st.line_chart(chart_df)
+    else:
+        st.line_chart(chart_df[[chart_choice]])
+
+    if ratio_df is not None:
+        ratio_options = [c for c in ratio_df.columns if c.endswith("%")]
+        if ratio_options:
+            st.subheader("Conversion Ratio Chart")
+            ratio_choice = st.selectbox("Select ratio to view", ratio_options)
+            st.line_chart(ratio_df[[ratio_choice]])
+
+    # Previews
+    st.subheader("Raw Data Preview")
+    st.dataframe(raw_df)
+
+    st.subheader("Calculated Data Preview")
+    preview_df = ratio_df.reset_index().copy()
+    preview_df["month_date"] = preview_df["month_date"].dt.strftime("%b-%Y")
+    st.dataframe(preview_df)
+
+    # Build prompt summary
+    summary_lines = []
+
+    for category in chart_df.columns:
+        series = chart_df[category]
+        peak_month = series.idxmax()
+        low_month = series.idxmin()
+
+        summary_lines.append(
+            f"{category}: total={int(series.sum())}, "
+            f"average={round(series.mean(), 1)}, "
+            f"highest={int(series.max())} in {peak_month.strftime('%b-%Y')}, "
+            f"lowest={int(series.min())} in {low_month.strftime('%b-%Y')}"
+        )
+
+    if "Protection_to_Mortgages_%" in ratio_df.columns:
+        series = ratio_df["Protection_to_Mortgages_%"]
+        summary_lines.append(
+            f"Protection to Mortgages ratio: average={series.mean():.2f}%, "
+            f"highest={series.max():.2f}% in {series.idxmax().strftime('%b-%Y')}, "
+            f"lowest={series.min():.2f}% in {series.idxmin().strftime('%b-%Y')}"
+        )
+
+    if "Conveyancing_to_Mortgages_%" in ratio_df.columns:
+        series = ratio_df["Conveyancing_to_Mortgages_%"]
+        summary_lines.append(
+            f"Conveyancing to Mortgages ratio: average={series.mean():.2f}%, "
+            f"highest={series.max():.2f}% in {series.idxmax().strftime('%b-%Y')}, "
+            f"lowest={series.min():.2f}% in {series.idxmin().strftime('%b-%Y')}"
+        )
+
+    compact_table = ratio_df.reset_index().copy()
+    compact_table["month_date"] = compact_table["month_date"].dt.strftime("%b-%Y")
+
+    data_summary = "Summary statistics:\n" + "\n".join(summary_lines)
+    data_summary += "\n\nMonthly data:\n" + compact_table.to_csv(index=False)
+
+# ---------------------------
+# System Prompt
+# ---------------------------
+system_prompt = f"""
+You are a senior business analyst for L&C Mortgages.
+
+You are analysing monthly trading volumes from an L&C dataset.
+
+Rules:
+- Only use the data provided
+- Do not invent figures
+- If something is not present in the data, say so clearly
+- Answer in a concise, professional, analyst-style tone
+- Highlight trends, peaks, troughs, and notable changes over time
+- When helpful, compare categories across months
+- If asked about conversion of Protection to Mortgages, use the Protection_to_Mortgages_% field
+- If asked about conversion of Conveyancing to Mortgages, use the Conveyancing_to_Mortgages_% field
+
+Here is the dataset:
+{data_summary}
+"""
+
+# ---------------------------
+# Chat Memory
+# ---------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "system", "content": system_prompt}]
 
@@ -68,10 +226,26 @@ with st.sidebar:
         st.session_state.messages = [{"role": "system", "content": system_prompt}]
         st.rerun()
 
+# ---------------------------
+# Example Questions
+# ---------------------------
+st.subheader("Example questions")
+st.write("- Summarise the main mortgage trend over the full period.")
+st.write("- Which month had the highest mortgage volume?")
+st.write("- What is the average protection to mortgages conversion?")
+st.write("- Which month had the best protection to mortgages conversion?")
+st.write("- What are the key trends in conveyancing?")
+
+# ---------------------------
+# Display Chat
+# ---------------------------
 for message in st.session_state.messages[1:]:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
+# ---------------------------
+# Chat Input
+# ---------------------------
 user_input = st.chat_input("Ask about L&C mortgage performance, conversions, or applications...")
 
 if user_input:
@@ -81,13 +255,15 @@ if user_input:
         st.markdown(user_input)
 
     with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=st.session_state.messages
-            )
-
-            answer = response.choices[0].message.content
-            st.markdown(answer)
-
-    st.session_state.messages.append({"role": "assistant", "content": answer})
+        with st.spinner("Analysing data..."):
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=st.session_state.messages,
+                    temperature=0.2
+                )
+                answer = response.choices[0].message.content
+                st.markdown(answer)
+                st.session_state.messages.append({"role": "assistant", "content": answer})
+            except Exception as e:
+                st.error(f"OpenAI API error: {str(e)}")
