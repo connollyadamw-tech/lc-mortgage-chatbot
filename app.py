@@ -145,12 +145,12 @@ if raw_df is not None:
 
     # Previews
     st.subheader("Raw Data Preview")
-    st.dataframe(raw_df)
+    st.dataframe(raw_df, hide_index=True)
 
     st.subheader("Calculated Data Preview")
     preview_df = ratio_df.reset_index().copy()
     preview_df["month_date"] = preview_df["month_date"].dt.strftime("%b-%Y")
-    st.dataframe(preview_df)
+    st.dataframe(preview_df, hide_index=True)
 
     # Build prompt summary
     summary_lines = []
