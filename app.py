@@ -27,8 +27,8 @@ client = OpenAI(api_key=api_key)
 st.set_page_config(page_title="L&C Mortgage Insights", page_icon="lc_logo.png", layout="wide")
 
 st.image("lc_logo.png", width=180)
-st.title("L&C Mortgage Insights Chatbot")
-st.caption("AI-powered insights for L&C trading volumes and trends")
+st.title("L&C AI Insights")
+st.caption("AI-powered insights to make the best business decisions")
 
 # ---------------------------
 # Load Data
